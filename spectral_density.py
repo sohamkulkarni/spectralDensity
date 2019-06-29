@@ -3,99 +3,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import signal
-from scipy import interpolate
-import matplotlib.mlab as mlab
-from matplotlib import rc
-import matplotlib as mpl
 import os
-
-#--- Primary file reading block
-'''
-'readpath' is the path variable for the files which are streamed.
-'readpathSdCard' is the path variable for the files read on the iPad.
-'writepath' to save results. All these variables are built here. 
-The two 'genpath' variables are one for the folder where the data file
-    is streamed. Here, my laptop and the lab computer.
-
-User Inputs:
-
-'date' when the measurment was started.
-'fileId' is the timestamp on every data file. Find this from the file.
-'skip_header' =8 if you are using an iPad file, else 0 unless you want
-    to deliberately not consider a bunch of data at the start
-'skip_footer' = 0 unless you want to deliberately not consider
-    a bunch of data at the end
-'''
-
-#--- General use functions
-
-def rinmaker(d,trend):
-    '''
-    Gives Relative Intensity of the time series, 
-    'd' is the time series,
-    'trend' is the option for detrend
-    '''
-    d = d/np.mean(d)
-    if trend==True:
-        d = signal.detrend(d,type='linear')
-    return d
-
-def lisa_req(f):
-    '''
-    Formulas directly from LISA proposal. Give the length and 
-        acceleration noise requirement
-    
-    '''
-    l_noise = (1e-12)*np.sqrt(1+(f/2e-3)**(-4))
-    a_noise = (3e-15)*np.sqrt(1+(f/4e-4)**(-2))*np.sqrt(1+(f/8e-3)**(-4))
-    return a_noise+l_noise
-
-def find_nearest(arr_in, val):
-    ''' 
-    Finds the index closest to a given 'val' in the array 'arr_in' 
-    Needed for 'psdmaker' function.
-    
-    '''
-    array = np.asarray(arr_in)
-    idx = np.argmin((np.abs(array - val)))
-    return int(idx)
-
-def psdmaker(ts_data, n1, n2, n3, fs):
-    '''
-    Calculates three PSDs and merges them by stitching together at different 
-        frequencies. Number of averages change at 1mHz, 10mHz below.
-    'ts_data' is whatever time series
-    'n1, n2, n3' are the number of average of each PSD
-    'fs' is sampling frequency
-    
-    '''
-    n_avg = n1
-    f2, Pxx_den2 = signal.welch(ts_data, fs,nperseg = len(ts_data)/n_avg, 
-                                detrend = 'linear', return_onesided=True) #-- PSD using the welch periodogram method with 16 averages, and linear detrend
-
-    n_avg = n2
-    f4, Pxx_den4 = signal.welch(ts_data, fs,nperseg = len(ts_data)/n_avg, 
-                                detrend = 'linear', return_onesided=True)
-
-    n_avg = n3
-    f8, Pxx_den8 = signal.welch(ts_data, fs,nperseg = len(ts_data)/n_avg, 
-                                detrend = 'linear', return_onesided=True)
-
-    f = np.concatenate((f2[1:find_nearest(f2,1e-3)], 
-                        f4[find_nearest(f4,1e-3):find_nearest(f4,1e-2)], 
-                        f8[find_nearest(f8,1e-2):]))
-    pxx = np.concatenate((Pxx_den2[1:find_nearest(f2,1e-3)], 
-                          Pxx_den4[find_nearest(f4,1e-3):find_nearest(f4,1e-2)], 
-                          Pxx_den8[find_nearest(f8,1e-2):]))
-    
-    return f,pxx
-
-def dCleaner(pm_data, trend):
-    '''Cleaning data for phasemeter glitching. Also optional detrend of data. '''
-    for i in range(len(pm_data)):
-        if pm_data[i]>5e8: pm_data[i] = 10003.798e5 - pm_data[i]
-    if trend==True: pm_data = signal.detrend(pm_data,type='linear')
-    return pm_data
+import time
+import pyLISA_telescope as func_library
 
 
 '''Main PSD computation routine'''
@@ -108,7 +18,8 @@ def spectral_den(readpath, writepath):
 	if needed for any further analysis.
 	'''
 
-
+	start_time = time.time()
+	abs_start = time.time()
 	'''Read stream files'''
 	data2_time=np.genfromtxt(readpath,usecols=([0]), dtype=(float),delimiter=',',
 	                         skip_header=0, skip_footer=0) #-- Column 0==time, column 1==frequency
@@ -118,18 +29,21 @@ def spectral_den(readpath, writepath):
 	#                         dtype=(float),delimiter=',', skip_header=0, skip_footer=0)
 	# data2_Q = np.genfromtxt(os.path.join(genpath,date,readpath),usecols=([6]),
 	                          # dtype=(float),delimiter=',', skip_header=0, skip_footer=0)
+	print("Done reading files in:", time.time() - start_time)
+	start_time = time.time()
 	duration = str(round(data2_time[-1]/3600,2))
 	label = duration+' hour '
 
 
 	'''Prepare frequency noise data before any processing.'''
-	detr2 = dCleaner(data2_freq,True)
-
+	detr2 = func_library.dCleaner(data2_freq,True)
+	print("Done detrending files in:", time.time()-start_time)
+	start_time = time.time()
 
 	'''Plotting for time series'''
 	plt.figure(figsize=(20,20))
-	plt.plot(data2_time,detr2,'r.', label=label ) #-- Linear detrended data
-	plt.xlabel('Time (Sec)',fontsize=28)
+	plt.plot(data2_time/3600,detr2,'r.', label=label ) #-- Linear detrended data
+	plt.xlabel('Time (Hours)',fontsize=28)
 	plt.ylabel('Beat Frequency (Hz)',fontsize=28)
 	plt.xticks(fontsize=28, fontstretch = 50)
 	plt.yticks(fontsize=28)
@@ -141,21 +55,28 @@ def spectral_den(readpath, writepath):
 	plt.savefig(os.path.join(writepath,'detrend.png'))
 
 	plt.figure(figsize=(20,20))
-	plt.plot(data2_time,data2_freq,'r.', label=label) #-- Raw data
-	plt.xlabel('Time (Sec)',fontsize=28)
+	plt.plot(data2_time/3600,data2_freq,'r.', label=label) #-- Raw data
+	plt.xlabel('Time (Hours)',fontsize=28)
 	plt.ylabel('Beat Frequency (Hz)',fontsize=28)
 	plt.xticks(fontsize=28)
 	plt.yticks(fontsize=28)
+	plt.grid(b=True, which='major', color='black', linestyle='-', linewidth=1.2)
+	plt.grid(which='minor', color='grey', linestyle='--', linewidth=0.7)
 	# plt.legend(fontsize=28)
 	plt.title('Time Series Data',fontsize=28)
 	# plt.show()
 	plt.savefig(os.path.join(writepath,'time_series.png'))
+	print('Plotting time series done in:', time.time()-start_time)
+	start_time = time.time()
 
 
 	'''Main PSD calculation'''
-	f, pxx = psdmaker(detr2,1,2,3, 30.5)
+	f, pxx = func_library.psdmaker(detr2,1,2,4, 30.5)
 	# f1,pxx1 = psdmaker(detr22,1,2,3)
 	# f3,pxx3 = psdmaker(detr23,1,2,3)
+
+	print('PSD calculation done in:', time.time()-start_time)
+	start_time = time.time()
 
 
 	'''PSD plot for frequency noise'''
@@ -164,10 +85,10 @@ def spectral_den(readpath, writepath):
 	df_to_dl = cav_length/frequency
 
 	plt.figure(figsize=(20,12))
-	plt.loglog(f, np.sqrt(pxx)*df_to_dl,'r', label="TTS-LRC-new EOM "+label,
+	plt.loglog(f, np.sqrt(pxx),'r', label="SRC-LRC "+label,
 	           linewidth='2.5')
-	plt.loglog(f[1:], lisa_req(f[1:]),'b', linewidth=2.5, linestyle='--', 
-		       label='LISA requirement')
+	# plt.loglog(f[1:], func_library.lisa_req(f[1:]),'b', linewidth=2.5,
+	# 		   linestyle='--', label='LISA requirement')
 	# plt.ylim([5e-15, 4e-9])
 	plt.xlim([1e-5, 1e0])
 	plt.grid(b=True, which='major', linewidth = '1.5',color='black')
@@ -175,12 +96,16 @@ def spectral_den(readpath, writepath):
 	plt.xticks(fontsize=28)
 	plt.yticks(fontsize=28)
 	plt.legend(fontsize=28)
-	plt.title('Cavity Stability Noise Spectrum', fontsize=32)
-	#plt.title('MOKU Noise Spectrum', fontsize=28)
+	plt.title('Cavity Length Noise Spectrum', fontsize=32)
 	plt.xlabel(r'Frequency [$Hz$]',fontsize=28)
-	plt.ylabel(r'Frequency ASD [$m/ \sqrt{Hz}$]',fontsize=28)
-	plt.savefig(os.path.join(writepath,'length_noise_tts.png'))
+	# plt.ylabel(r'Length ASD [$m/ \sqrt{Hz}$]',fontsize=28)
+	plt.ylabel(r'Frequency ASD [$Hz/ \sqrt{Hz}$]',fontsize=28)
+	# plt.savefig(os.path.join(writepath,'length_noise.png'))
+	plt.savefig(os.path.join(writepath,'frequency_noise.png'))
 	plt.show()
+
+	print('Plotting Spectrum done in:', time.time()-start_time)
+	print('spectral_density done in:', time.time()-abs_start)
 
 	
 

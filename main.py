@@ -13,32 +13,31 @@ import os
 #--- Building all needed file paths
 
 
-genpath = r'C:\Users\kulka\OneDrive - University of Florida\uf\research\PicometerStability\data'
+genpath = r'P:\ResLabs\LISAscope\Soham\Data\Noise_Spectra'
 # genpath = r'C:\Users\kulkarnisoham\OneDrive - University of Florida\uf\research\PicometerStability\data'
-date = '2019_05_31'
-fileId = '165920'
+date = '2019_06_28'
+fileId = '152718'
 # duration = str(15)
 # label = duration+' hour '+date
 readpath = os.path.join(genpath, date, 'MokuPhasemeterStream_'+date+'_'+fileId+'.csv')
-readpath_tran = os.path.join(genpath, date, '2019_05_29_tts_1.lvm')
+readpath_tran = os.path.join(genpath, date, '2019_06_rc_trans.lvm')
 readpath_temp = os.path.join(genpath, date, '2019_05_30_temp.lvm')
-writepath = os.path.join(genpath,date,fileId)
+writepath = os.path.join(genpath,date,'output_'+fileId+'_rc_rc')
 
 if not os.path.isdir(writepath):
 	print('Created new folder')
-	os.mkdir(writepath)
+	os.mkdir(writepath)	
 
 import spectral_density
 
 # timestamp, detrend_freq, ts_freq, f, pxx = spectral_density.spectral_den(readpath)
-spectral_density.spectral_den(readpath) 
+spectral_density.spectral_den(readpath, writepath) 
 
-import transmission
+# import transmission
 
+# transmission.transmission_maker(readpath_tran)
 
-transmission.transmission_maker(readpath_tran)
+# import temperature
 
-import temperature
-
-temperature.temp_all(readpath_temp)
+# temperature.temp_all(readpath_temp)
 
